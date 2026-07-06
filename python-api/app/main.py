@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from .config import settings
 from .jobs import job_manager
+
+
+class SubmitKindParam(str, Enum):
+    REPLACE = "REPLACE"
+    APPEND_TEXT = "APPEND_TEXT"
+    APPEND_BLOCK = "APPEND_BLOCK"
+
 
 app = FastAPI(title="Lexicast API")
 
@@ -27,6 +35,7 @@ async def create_translation(
     target_language: str = Form(...),
     concurrency: int = Form(1),
     user_prompt: Optional[str] = Form(None),
+    submit_kind: SubmitKindParam = Form(SubmitKindParam.APPEND_BLOCK),
 ):
     if not file.filename or not file.filename.lower().endswith(".epub"):
         raise HTTPException(400, "File must be an .epub")
@@ -45,6 +54,7 @@ async def create_translation(
         target_language=target_language,
         concurrency=concurrency,
         user_prompt=user_prompt,
+        submit_kind=submit_kind.value,
     )
 
     return {"job_id": job.id, "status": job.status}

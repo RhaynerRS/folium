@@ -54,8 +54,9 @@ class JobManager:
         target_language: str,
         concurrency: int,
         user_prompt: Optional[str],
+        submit_kind: str,
     ) -> None:
-        self._executor.submit(self._run, job, target_language, concurrency, user_prompt)
+        self._executor.submit(self._run, job, target_language, concurrency, user_prompt, submit_kind)
 
     def _run(
         self,
@@ -63,6 +64,7 @@ class JobManager:
         target_language: str,
         concurrency: int,
         user_prompt: Optional[str],
+        submit_kind: str,
     ) -> None:
         with job.lock:
             job.status = "running"
@@ -90,7 +92,7 @@ class JobManager:
                 source_path=job.source_path,
                 target_path=job.target_path,
                 target_language=target_language,
-                submit=SubmitKind.APPEND_BLOCK,
+                submit=SubmitKind[submit_kind],
                 user_prompt=user_prompt,
                 concurrency=concurrency,
                 llm=llm,

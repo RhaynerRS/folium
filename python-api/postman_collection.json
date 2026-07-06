@@ -45,6 +45,13 @@
               "type": "text",
               "value": "",
               "disabled": true
+            },
+            {
+              "key": "submit_kind",
+              "type": "text",
+              "value": "APPEND_BLOCK",
+              "description": "One of REPLACE, APPEND_TEXT, APPEND_BLOCK. Defaults to APPEND_BLOCK if omitted.",
+              "disabled": true
             }
           ]
         },
@@ -53,7 +60,7 @@
           "host": ["{{base_url}}"],
           "path": ["translations"]
         },
-        "description": "Uploads an .epub file and starts a translation job. Response contains job_id, used by the other requests."
+        "description": "Uploads an .epub file and starts a translation job. Response contains job_id, used by the other requests. submit_kind controls how translated text is merged into the original node: REPLACE, APPEND_TEXT, or APPEND_BLOCK."
       },
       "event": [
         {

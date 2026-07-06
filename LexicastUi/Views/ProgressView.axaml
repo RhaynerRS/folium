@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="640" d:DesignHeight="720"
+             x:Class="LexicastUi.Views.ProgressView">
+
+    <StackPanel Margin="40,32" Spacing="20" MaxWidth="640" HorizontalAlignment="Stretch">
+
+        <StackPanel Spacing="4">
+            <TextBlock Text="Traduzindo" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock x:Name="FileNameText" Opacity="0.7" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock x:Name="StatusText" Text="Status: enviando..." FontWeight="SemiBold" />
+                <TextBlock Grid.Column="1" x:Name="ProgressPercentText" Text="0%" />
+            </Grid>
+            <ProgressBar x:Name="JobProgressBar" Minimum="0" Maximum="100" Value="0" />
+        </StackPanel>
+
+        <Border x:Name="WarningBanner" Background="#33FFA500" BorderBrush="Orange" BorderThickness="1"
+                CornerRadius="4" Padding="12,8" IsVisible="False">
+            <TextBlock x:Name="WarningText" Foreground="Orange" TextWrapping="Wrap" />
+        </Border>
+
+        <Border x:Name="ErrorBanner" Background="#33FF0000" BorderBrush="Red" BorderThickness="1"
+                CornerRadius="4" Padding="12,8" IsVisible="False">
+            <TextBlock x:Name="ErrorText" Foreground="Red" TextWrapping="Wrap" />
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button x:Name="DownloadButton"
+                    Content="Baixar tradução"
+                    Classes="accent"
+                    IsEnabled="False"
+                    Click="DownloadButton_Click" />
+            <Button x:Name="NewTranslationButton"
+                    Content="Nova tradução"
+                    Click="NewTranslationButton_Click" />
+            <ProgressBar x:Name="DownloadProgressBar" Width="24" Height="24" IsIndeterminate="True" IsVisible="False" />
+        </StackPanel>
+
+    </StackPanel>
+</UserControl>

@@ -1,8 +1,14 @@
+using LexicastUi.Models;
+
 namespace LexicastUi.Views;
 
 public interface INavigationHost
 {
-    void ShowUpload();
+    void ShowTranslations();
 
-    void ShowProgress(string jobId, string sourceFileName);
+    void ShowNewTranslation();
+
+    void ShowProgress(TranslationJob job);
+
+    void ShowSuccess(TranslationJob job);
 }

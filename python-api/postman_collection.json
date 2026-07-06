@@ -82,6 +82,20 @@
       "response": []
     },
     {
+      "name": "List translations",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/translations",
+          "host": ["{{base_url}}"],
+          "path": ["translations"]
+        },
+        "description": "Returns a list of all known jobs (job_id, source_filename, status, progress, error, warning), in the order they were created."
+      },
+      "response": []
+    },
+    {
       "name": "Get translation status",
       "request": {
         "method": "GET",

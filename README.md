@@ -30,7 +30,7 @@ docker compose up -d
 
 The `ollama` service is pulled with the `rocm` image tag and mounts `/dev/kfd` and `/dev/dri`, targeting AMD GPUs (`HSA_OVERRIDE_GFX_VERSION=10.3.0`). Adjust the image/devices in `docker-compose.yml` if you're on NVIDIA/CPU.
 
-On startup, the `ollama` container automatically pulls `qwen3:0.6b-q4_K_M` (a small, quantized model) once its server is ready — no manual step needed. Change the tag in `docker-compose.yml` (and `OLLAMA_MODEL` in the `api` service) if you want a different Qwen3 size/quantization.
+On startup, the `ollama` container automatically pulls `qwen2.5:3b-instruct-q4_K_M` (a small, quantized model sized to fit a few parallel `JOB_WORKERS` on an 8GB GPU) once its server is ready — no manual step needed. Change the tag in `docker-compose.yml` (and `OLLAMA_MODEL` in the `api` service) if you want a different model size/quantization.
 
 ### Running the API locally (development)
 
@@ -105,22 +105,29 @@ Translation jobs run in-process on a thread pool (`JOB_WORKERS`) inside the API 
 `python-api/.env.example`:
 
 ```env
-OLLAMA_BASE_URL=http://localhost:11434/v1
-OLLAMA_MODEL=qwen3:0.6b-q4_K_M
-OLLAMA_API_KEY=ollama
+LLM_PROVIDER=openai
+API_KEY=
+MAX_GROUP_TOKENS=1000
 TOKEN_ENCODING=cl100k_base
 STORAGE_DIR=./data
 JOB_WORKERS=4
 ```
 
+Provider selection is a small **adapter factory** in `config.py`: each provider (`ollama`, `deepseek`, `openai`) is a tiny class holding its own defaults (`default_base_url`, `default_model`, plus provider-specific extras like Ollama's `num_ctx`), registered in a `_PROVIDERS` dict. The env var surface is the same **`API_KEY` / `BASE_URL` / `MODEL`** trio no matter which provider is selected — only set `BASE_URL`/`MODEL` if you want to override that provider's default. Adding another OpenAI-compatible provider is one adapter class, no new env var names.
+
+> **Note:** Claude/Anthropic is not a supported `LLM_PROVIDER`. The `epub-translator` library's `LLM` client is hardcoded to the OpenAI chat-completions wire format, and Anthropic's Messages API has no official OpenAI-compatible endpoint — so only genuinely OpenAI-compatible backends (Ollama, DeepSeek, OpenAI itself) can be plugged in this way.
+
 | Variable | Description |
 |----------|--------------|
-| `OLLAMA_BASE_URL` | OpenAI-compatible Ollama endpoint (must end in `/v1`) |
-| `OLLAMA_MODEL` | Model served by Ollama (default `qwen3:0.6b-q4_K_M`) |
-| `OLLAMA_API_KEY` | Dummy key required by the LLM client lib; Ollama ignores it |
+| `LLM_PROVIDER` | `openai` (default), `deepseek`, or `ollama` (local) — selects which adapter resolves `API_KEY`/`BASE_URL`/`MODEL` |
+| `API_KEY` | API key for the selected provider. Required for `openai`/`deepseek`; for `ollama` it can be any value (the server ignores it) |
+| `BASE_URL` | Overrides the provider's default endpoint (e.g. `http://localhost:11434/v1` for a local Ollama, `https://api.openai.com/v1` for OpenAI) |
+| `MODEL` | Overrides the provider's default model |
+| `OLLAMA_NUM_CTX` | Ollama-only: context window (tokens) requested per call, kept below the model's native window (default `30000`) |
+| `MAX_GROUP_TOKENS` | Max source tokens per translation/fill group; smaller groups mean fewer block elements to align per request, which helps smaller/local models preserve structure. Stronger cloud models (OpenAI, DeepSeek) tolerate larger values (default `1000`) |
 | `TOKEN_ENCODING` | `tiktoken` encoding used to estimate tokens when batching segments |
 | `STORAGE_DIR` | Where uploaded/translated EPUBs are stored |
-| `JOB_WORKERS` | Max number of translation jobs running in parallel |
+| `JOB_WORKERS` | Max number of translation jobs running in parallel. With a cloud provider this becomes bounded by the account's rate limits rather than local VRAM |
 
 ## Tech Stack
 

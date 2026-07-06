@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net.Http;
@@ -49,6 +50,13 @@ public sealed class TranslationApiClient
         using var response = await _httpClient.GetAsync(CombineUrl($"/translations/{jobId}"), ct);
         await EnsureSuccessAsync(response, ct);
         return await ReadJsonAsync<TranslationJob>(response, ct);
+    }
+
+    public async Task<List<TranslationJob>> ListJobsAsync(CancellationToken ct = default)
+    {
+        using var response = await _httpClient.GetAsync(CombineUrl("/translations"), ct);
+        await EnsureSuccessAsync(response, ct);
+        return await ReadJsonAsync<List<TranslationJob>>(response, ct);
     }
 
     public async Task<TranslationJob> CancelJobAsync(string jobId, CancellationToken ct = default)

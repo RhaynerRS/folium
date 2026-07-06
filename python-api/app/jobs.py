@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from epub_translator import LLM, SubmitKind, translate
 
 from .config import settings
+from .db import JobStore
 
 CANCELLABLE_STATUSES = ("queued", "running", "cancelling")
+TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 
 
 class _JobCancelled(Exception):
@@ -22,6 +26,10 @@ class _JobCancelled(Exception):
 class JobState:
     id: str
     source_filename: str
+    target_language: str = ""
+    submit_kind: str = ""
+    concurrency: int = 1
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     status: str = "queued"  # queued | running | cancelling | completed | failed | cancelled
     progress: float = 0.0
     error: Optional[str] = None
@@ -31,11 +39,17 @@ class JobState:
     future: Optional[Future] = field(default=None, repr=False)
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    subscribers: list["asyncio.Queue[dict]"] = field(default_factory=list, repr=False)
 
     def to_public_dict(self) -> dict:
         with self.lock:
             return {
                 "job_id": self.id,
+                "source_filename": self.source_filename,
+                "target_language": self.target_language,
+                "submit_kind": self.submit_kind,
+                "concurrency": self.concurrency,
+                "created_at": self.created_at.isoformat(),
                 "status": self.status,
                 "progress": round(self.progress, 4),
                 "error": self.error,
@@ -44,17 +58,120 @@ class JobState:
 
 
 class JobManager:
-    def __init__(self, max_workers: int):
+    def __init__(self, max_workers: int, storage_dir: Path):
+        self.upload_dir = storage_dir / "uploads"
+        self.output_dir = storage_dir / "outputs"
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
         self._jobs: dict[str, JobState] = {}
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._store = JobStore(storage_dir / "jobs.db")
+        self._load_persisted_jobs()
 
-    def create_job(self, source_filename: str) -> JobState:
-        job = JobState(id=uuid.uuid4().hex, source_filename=source_filename)
+    def _load_persisted_jobs(self) -> None:
+        """Restore jobs recorded before the last restart. Any job that was still
+        in-flight lost its background thread when the process exited, so it's
+        marked failed instead of being silently stuck as "running" forever."""
+        for row in self._store.load_all():
+            status = row["status"]
+            error = row["error"]
+            if status not in TERMINAL_STATUSES:
+                status = "failed"
+                error = error or "Interrupted by server restart"
+
+            job = JobState(
+                id=row["id"],
+                source_filename=row["source_filename"],
+                target_language=row["target_language"],
+                submit_kind=row["submit_kind"],
+                concurrency=row["concurrency"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+                status=status,
+                progress=row["progress"],
+                error=error,
+                last_warning=row["warning"],
+                source_path=Path(row["source_path"]) if row["source_path"] else None,
+                target_path=Path(row["target_path"]) if row["target_path"] else None,
+            )
+            self._jobs[job.id] = job
+            if status != row["status"]:
+                self._persist(job)
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Bind the running FastAPI event loop so worker threads can publish
+        job updates to SSE subscribers via `call_soon_threadsafe`."""
+        self._loop = loop
+
+    def create_job(
+        self,
+        source_filename: str,
+        target_language: str,
+        submit_kind: str,
+        concurrency: int,
+    ) -> JobState:
+        job_id = uuid.uuid4().hex
+        job = JobState(
+            id=job_id,
+            source_filename=source_filename,
+            target_language=target_language,
+            submit_kind=submit_kind,
+            concurrency=concurrency,
+            source_path=self.upload_dir / f"{job_id}.epub",
+            target_path=self.output_dir / f"{job_id}.epub",
+        )
         self._jobs[job.id] = job
+        self._persist(job)
         return job
 
     def get(self, job_id: str) -> Optional[JobState]:
         return self._jobs.get(job_id)
+
+    def list(self) -> list[JobState]:
+        return list(self._jobs.values())
+
+    def subscribe(self, job: JobState) -> "asyncio.Queue[dict]":
+        queue: "asyncio.Queue[dict]" = asyncio.Queue()
+        job.subscribers.append(queue)
+        return queue
+
+    def unsubscribe(self, job: JobState, queue: "asyncio.Queue[dict]") -> None:
+        if queue in job.subscribers:
+            job.subscribers.remove(queue)
+
+    def _publish(self, job: JobState) -> None:
+        """Called from worker threads; persists the current job state and hands
+        it off to the event loop so it can be delivered to any subscribed SSE
+        streams."""
+        self._persist(job)
+        if self._loop is None:
+            return
+        self._loop.call_soon_threadsafe(self._deliver, job)
+
+    def _persist(self, job: JobState) -> None:
+        with job.lock:
+            row = {
+                "id": job.id,
+                "source_filename": job.source_filename,
+                "target_language": job.target_language,
+                "submit_kind": job.submit_kind,
+                "concurrency": job.concurrency,
+                "created_at": job.created_at.isoformat(),
+                "status": job.status,
+                "progress": job.progress,
+                "error": job.error,
+                "warning": job.last_warning,
+                "source_path": str(job.source_path) if job.source_path else None,
+                "target_path": str(job.target_path) if job.target_path else None,
+            }
+        self._store.upsert(row)
+
+    @staticmethod
+    def _deliver(job: JobState) -> None:
+        data = job.to_public_dict()
+        for queue in job.subscribers:
+            queue.put_nowait(data)
 
     def submit(
         self,
@@ -85,13 +202,14 @@ class JobManager:
         with job.lock:
             if stopped_before_start:
                 job.status = "cancelled"
-            elif job.status not in ("completed", "failed", "cancelled"):
+            elif job.status not in TERMINAL_STATUSES:
                 job.status = "cancelling"
             result_status = job.status
 
         if stopped_before_start:
             self._discard_job_files(job)
 
+        self._publish(job)
         return result_status
 
     @staticmethod
@@ -110,12 +228,14 @@ class JobManager:
     ) -> None:
         with job.lock:
             job.status = "running"
+        self._publish(job)
 
         def on_progress(progress: float) -> None:
             if job.cancel_event.is_set():
                 raise _JobCancelled()
             with job.lock:
                 job.progress = progress
+            self._publish(job)
 
         def on_fill_failed(event) -> None:
             with job.lock:
@@ -124,23 +244,49 @@ class JobManager:
                     f"(retry {event.retried_count}, "
                     f"over_maximum_retries={event.over_maximum_retries})"
                 )
+            self._publish(job)
 
         try:
-            llm = LLM(
-                key=settings.ollama_api_key,
-                url=settings.ollama_base_url,
-                model=settings.ollama_model,
+            # Dual-LLM setup matching the official books-translator-ng block:
+            # translation favors fluency with a higher temperature/top_p,
+            # while fill favors literal structure preservation with a low,
+            # retry-escalating temperature. llm_extra_body carries provider-
+            # specific options (e.g. Ollama's num_ctx) and is None for
+            # providers like DeepSeek that don't need it.
+            translation_llm = LLM(
+                key=settings.llm_api_key,
+                url=settings.llm_base_url,
+                model=settings.llm_model,
                 token_encoding=settings.token_encoding,
+                timeout=360.0,
+                retry_times=10,
+                retry_interval_seconds=0.75,
+                temperature=0.8,
+                top_p=0.6,
+                extra_body=settings.llm_extra_body,
+            )
+            fill_llm = LLM(
+                key=settings.llm_api_key,
+                url=settings.llm_base_url,
+                model=settings.llm_model,
+                token_encoding=settings.token_encoding,
+                timeout=360.0,
+                retry_times=10,
+                retry_interval_seconds=0.75,
+                temperature=(0.2, 0.9),
+                top_p=(0.9, 1.0),
+                extra_body=settings.llm_extra_body,
             )
             translate(
                 source_path=job.source_path,
                 target_path=job.target_path,
                 target_language=target_language,
                 submit=SubmitKind[submit_kind],
-                max_group_tokens=4000,
+                max_group_tokens=settings.max_group_tokens,
                 user_prompt=user_prompt,
                 concurrency=concurrency,
-                llm=llm,
+                translation_llm=translation_llm,
+                fill_llm=fill_llm,
                 on_progress=on_progress,
                 on_fill_failed=on_fill_failed,
             )
@@ -160,6 +306,8 @@ class JobManager:
             with job.lock:
                 job.status = "failed"
                 job.error = str(exc)
+        finally:
+            self._publish(job)
 
 
-job_manager = JobManager(max_workers=settings.job_workers)
+job_manager = JobManager(max_workers=settings.job_workers, storage_dir=Path(settings.storage_dir))

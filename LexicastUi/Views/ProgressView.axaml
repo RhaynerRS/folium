@@ -2,56 +2,66 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:views="using:LexicastUi.Views"
              mc:Ignorable="d" d:DesignWidth="960" d:DesignHeight="680"
              x:Class="LexicastUi.Views.ProgressView">
 
-    <StackPanel Margin="40,32" Spacing="24" MaxWidth="640" HorizontalAlignment="Center">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="1160" Margin="32,36,32,80" Spacing="0">
 
-        <StackPanel Spacing="6">
-            <TextBlock Text="EM ANDAMENTO" Classes="Eyebrow" />
-            <TextBlock Text="Traduzindo seu EPUB" FontSize="28" FontWeight="Bold" />
-            <TextBlock x:Name="FileNameText" Opacity="0.7" TextTrimming="CharacterEllipsis" />
-        </StackPanel>
+            <views:Breadcrumb x:Name="Crumbs" Margin="0,0,0,28" />
 
-        <Border Classes="Card" Padding="28">
-            <StackPanel Spacing="22">
+            <StackPanel MaxWidth="560" HorizontalAlignment="Center" Spacing="0" Margin="0,40,0,0">
 
-                <StackPanel Spacing="10">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock x:Name="StatusText" Text="Status: enviando..." FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="1" x:Name="ProgressPercentText" Text="0%"
-                                   Foreground="{DynamicResource AccentTextBrush}" FontWeight="Bold" />
-                    </Grid>
-                    <ProgressBar x:Name="JobProgressBar" Minimum="0" Maximum="100" Value="0" Height="10" CornerRadius="5" />
-                </StackPanel>
+                <Grid Width="64" Height="64" HorizontalAlignment="Center" Margin="0,0,0,24">
+                    <Ellipse Stroke="#E9EDFF" StrokeThickness="4" Width="64" Height="64" />
+                    <Ellipse x:Name="SpinnerArc" Classes="Spinner" Stroke="#4A55D6" StrokeThickness="4" Width="64" Height="64"
+                             StrokeDashArray="45,145" StrokeLineCap="Round">
+                        <Ellipse.RenderTransform>
+                            <RotateTransform />
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                </Grid>
 
-                <Border x:Name="WarningBanner" Classes="Banner Warning" IsVisible="False">
-                    <TextBlock x:Name="WarningText" Foreground="#F2A93C" TextWrapping="Wrap" />
+                <TextBlock Text="Translating your EPUB…" FontSize="24" FontWeight="Black" HorizontalAlignment="Center"
+                           Margin="0,0,0,8" />
+                <TextBlock x:Name="SubtitleText" Classes="MutedText" FontSize="14" HorizontalAlignment="Center"
+                           Margin="0,0,0,32" />
+
+                <Border Classes="Card" Padding="28">
+                    <StackPanel Spacing="16">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" x:Name="StatusLineText" Text="Translating chapters…" FontSize="13"
+                                       FontWeight="Bold" />
+                            <TextBlock Grid.Column="1" x:Name="ProgressPercentText" Text="0%" FontSize="15" FontWeight="Black"
+                                       Classes="AccentText" />
+                        </Grid>
+                        <ProgressBar x:Name="JobProgressBar" Minimum="0" Maximum="100" Value="0" Height="10" CornerRadius="5">
+                            <ProgressBar.Foreground>
+                                <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+                                    <GradientStop Color="#4A55D6" Offset="0" />
+                                    <GradientStop Color="#6E77E8" Offset="1" />
+                                </LinearGradientBrush>
+                            </ProgressBar.Foreground>
+                        </ProgressBar>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" x:Name="JobIdText" Classes="MutedText" FontSize="12.5" />
+                            <TextBlock Grid.Column="1" x:Name="SessionsText" Classes="MutedText" FontSize="12.5" />
+                        </Grid>
+                    </StackPanel>
                 </Border>
 
-                <Border x:Name="ErrorBanner" Classes="Banner Error" IsVisible="False">
-                    <TextBlock x:Name="ErrorText" Foreground="#E5484D" TextWrapping="Wrap" />
+                <Border x:Name="ErrorBanner" Classes="Banner Error" IsVisible="False" Margin="0,20,0,0">
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Name="ErrorText" Foreground="#C1443B" TextWrapping="Wrap" />
+                        <TextBlock Text="← Back to translations" Classes="AccentLink" Tapped="BackLink_Tapped" />
+                    </StackPanel>
                 </Border>
 
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <Button x:Name="DownloadButton"
-                            Content="Baixar tradução"
-                            Classes="accent"
-                            IsEnabled="False"
-                            Click="DownloadButton_Click" />
-                    <Button x:Name="CancelButton"
-                            Content="Cancelar tradução"
-                            Classes="Secondary"
-                            Click="CancelButton_Click" />
-                    <Button x:Name="NewTranslationButton"
-                            Content="Nova tradução"
-                            Classes="Secondary"
-                            Click="NewTranslationButton_Click" />
-                    <ProgressBar x:Name="DownloadProgressBar" Width="22" Height="22" IsIndeterminate="True" IsVisible="False" />
-                </StackPanel>
+                <Button x:Name="CancelButton" Content="Cancel translation" Classes="DangerGhostButton"
+                        HorizontalAlignment="Center" Margin="0,24,0,0" Click="CancelButton_Click" />
 
             </StackPanel>
-        </Border>
-
-    </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

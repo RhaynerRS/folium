@@ -4,14 +4,14 @@ import asyncio
 import json
 import shutil
 from enum import Enum
-from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
-from .config import settings
-from .jobs import job_manager
+from .jobs import TERMINAL_STATUSES, job_manager
+
+SSE_HEARTBEAT_SECONDS = 15
 
 
 class SubmitKindParam(str, Enum):
@@ -22,11 +22,10 @@ class SubmitKindParam(str, Enum):
 
 app = FastAPI(title="Lexicast API")
 
-STORAGE_DIR = Path(settings.storage_dir)
-UPLOAD_DIR = STORAGE_DIR / "uploads"
-OUTPUT_DIR = STORAGE_DIR / "outputs"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+@app.on_event("startup")
+async def _bind_job_manager_loop() -> None:
+    job_manager.bind_loop(asyncio.get_running_loop())
 
 
 @app.post("/translations", status_code=202)
@@ -42,9 +41,12 @@ async def create_translation(
     if concurrency < 1:
         raise HTTPException(400, "concurrency must be >= 1")
 
-    job = job_manager.create_job(source_filename=file.filename)
-    job.source_path = UPLOAD_DIR / f"{job.id}.epub"
-    job.target_path = OUTPUT_DIR / f"{job.id}.epub"
+    job = job_manager.create_job(
+        source_filename=file.filename,
+        target_language=target_language,
+        submit_kind=submit_kind.value,
+        concurrency=concurrency,
+    )
 
     with job.source_path.open("wb") as out_file:
         shutil.copyfileobj(file.file, out_file)
@@ -58,6 +60,11 @@ async def create_translation(
     )
 
     return {"job_id": job.id, "status": job.status}
+
+
+@app.get("/translations")
+async def list_translations():
+    return [job.to_public_dict() for job in job_manager.list()]
 
 
 @app.get("/translations/{job_id}")
@@ -85,13 +92,27 @@ async def stream_translation_events(job_id: str):
     if job is None:
         raise HTTPException(404, "Job not found")
 
+    queue = job_manager.subscribe(job)
+
     async def event_stream():
-        while True:
+        try:
             data = job.to_public_dict()
             yield f"data: {json.dumps(data)}\n\n"
-            if data["status"] in ("completed", "failed", "cancelled"):
-                break
-            await asyncio.sleep(1)
+            if data["status"] in TERMINAL_STATUSES:
+                return
+
+            while True:
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+
+                yield f"data: {json.dumps(data)}\n\n"
+                if data["status"] in TERMINAL_STATUSES:
+                    break
+        finally:
+            job_manager.unsubscribe(job, queue)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

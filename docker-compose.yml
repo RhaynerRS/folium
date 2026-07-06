@@ -9,14 +9,24 @@ services:
     volumes:
       - api_data:/data
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434/v1
-      - OLLAMA_MODEL=qwen3:0.6b-q4_K_M
-      - OLLAMA_API_KEY=ollama
+      - LLM_PROVIDER=deepseek
+      - BASE_URL=https://api.deepseek.com
+      - MODEL=deepseek-v4-flash
+      - API_KEY=sk-50a8c5e9e98f400ba2c49b2316c91652
+      # - BASE_URL=       # optional override, defaults to https://api.openai.com/v1
+      # - MODEL=          # optional override, defaults to gpt-4o-mini
+      # To use Ollama or DeepSeek instead, set LLM_PROVIDER accordingly —
+      # API_KEY/BASE_URL/MODEL are the same three vars for every provider.
+      # Ollama also needs the "ollama" service below and OLLAMA_NUM_CTX:
+      #   LLM_PROVIDER=ollama
+      #   API_KEY=ollama
+      #   BASE_URL=http://ollama:11434/v1
+      #   MODEL=qwen2.5:3b-instruct-q4_K_M
+      #   OLLAMA_NUM_CTX=30000
+      - MAX_GROUP_TOKENS=1000
       - TOKEN_ENCODING=cl100k_base
       - STORAGE_DIR=/data
       - JOB_WORKERS=4
-    depends_on:
-      - ollama
     labels:
       - "service_name=lexicast-api"
     restart: unless-stopped
@@ -38,7 +48,7 @@ services:
       - |
         ollama serve &
         until ollama list >/dev/null 2>&1; do sleep 1; done
-        ollama pull qwen3:0.6b-q4_K_M
+        ollama pull qwen2.5:3b-instruct-q4_K_M
         wait
     restart: unless-stopped
 
